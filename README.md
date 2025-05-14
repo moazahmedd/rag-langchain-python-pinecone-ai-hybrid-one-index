@@ -62,11 +62,16 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-4. Create a `.env` file in the root directory:
+4. Create a `.env` file in the root directory with the following variables:
 
 ```env
 OPENAI_API_KEY=your_openai_api_key
 PINECONE_API_KEY=your_pinecone_api_key
+PINECONE_INDEX=your_pinecone_index_name
+PORT=8080
+HOST=127.0.0.1
+EMBEDDING_MODEL=text-embedding-3-small
+LLM_MODEL=gpt-4
 ```
 
 5. Create a data directory and place your PDF file:
@@ -83,30 +88,30 @@ cp path/to/your/pdf data/Think-And-Grow-Rich.pdf
 
 ```bash
 cd app
-uvicorn main:app --reload
+python main.py
 ```
 
-The API will be available at `http://localhost:8000`
+The API will be available at `http://127.0.0.1:8080`
 
 ## API Documentation
 
 Once the server is running, you can access:
 
-- Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
+- Swagger UI: `http://127.0.0.1:8080/docs`
+- ReDoc: `http://127.0.0.1:8080/redoc`
 
 ## API Endpoints
 
 ### 1. Upload Document
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/documents/upload"
+curl -X POST "http://127.0.0.1:8080/api/v1/documents/upload"
 ```
 
 ### 2. Query Document
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/query" \
+curl -X POST "http://127.0.0.1:8080/api/v1/query" \
      -H "Content-Type: application/json" \
      -d '{"query": "What is the main topic?", "k": 3}'
 ```
@@ -114,7 +119,7 @@ curl -X POST "http://localhost:8000/api/v1/query" \
 ### 3. Delete Document
 
 ```bash
-curl -X DELETE "http://localhost:8000/api/v1/documents"
+curl -X DELETE "http://127.0.0.1:8080/api/v1/documents"
 ```
 
 ## Testing with Postman
@@ -132,14 +137,14 @@ curl -X DELETE "http://localhost:8000/api/v1/documents"
       "name": "Upload Document",
       "request": {
         "method": "POST",
-        "url": "http://localhost:8000/api/v1/documents/upload"
+        "url": "http://127.0.0.1:8080/api/v1/documents/upload"
       }
     },
     {
       "name": "Query Document",
       "request": {
         "method": "POST",
-        "url": "http://localhost:8000/api/v1/query",
+        "url": "http://127.0.0.1:8080/api/v1/query",
         "header": [
           {
             "key": "Content-Type",
@@ -156,7 +161,7 @@ curl -X DELETE "http://localhost:8000/api/v1/documents"
       "name": "Delete Document",
       "request": {
         "method": "DELETE",
-        "url": "http://localhost:8000/api/v1/documents"
+        "url": "http://127.0.0.1:8080/api/v1/documents"
       }
     }
   ]
@@ -177,8 +182,15 @@ curl -X DELETE "http://localhost:8000/api/v1/documents"
    - Ensure the keys are valid and have proper permissions
 
 3. **Pinecone Index Issues**
+
    - Make sure the index exists in your Pinecone account
    - Check if the namespace is properly configured
+
+4. **Server Initialization**
+   - When running in development mode, you'll see the initialization message twice
+   - This is normal behavior due to Uvicorn's reloader process
+   - The first process watches for file changes
+   - The second process runs your actual application
 
 ## Development
 

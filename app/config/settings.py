@@ -5,6 +5,7 @@ from pathlib import Path
 
 # Load environment variables
 load_dotenv()
+
 # Get the project root directory
 ROOT_DIR = Path(__file__).parent.parent.parent
 DATA_DIR = ROOT_DIR / "data"
@@ -20,7 +21,6 @@ class Settings(BaseSettings):
     
     # Pinecone settings
     PINECONE_INDEX_NAME: str = os.getenv("PINECONE_INDEX")
-    # PINECONE_NAMESPACE: str = "think-and-grow-rich"
     
     # Document settings
     PDF_PATH: str = str(DATA_DIR / "Think-And-Grow-Rich.pdf")
@@ -28,15 +28,9 @@ class Settings(BaseSettings):
     CHUNK_OVERLAP: int = 100
     
     # Model settings
-    EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL")
-    LLM_MODEL: str = os.getenv("LLM_MODEL")
+    EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+    LLM_MODEL: str = os.getenv("LLM_MODEL", "gpt-3.5-turbo")
     LLM_TEMPERATURE: float = 0.3
     
     class Config:
-        env_file = ".env"
-
-def get_settings() -> Settings:
-    print("LANGSMITH_PROJECT:", os.getenv("LANGSMITH_PROJECT"))
-    print("LANGSMITH_API_KEY (last 4):", os.getenv("LANGSMITH_API_KEY")[-4:])
-    settings = Settings()
-    return settings 
+        env_file = ".env" 

@@ -1,9 +1,10 @@
-from fastapi import APIRouter, HTTPException, status
-from services.document_service import DocumentService
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, status
+from services.rag_service import RAGService
 from config.settings import Settings
-from models.schemas import DocumentResponse, ErrorResponse, URLDocumentRequest, UploadDocumentRequest, NamespaceListResponse
-from typing import Union
-import json
+from pydantic import BaseModel
+import os
+from typing import List, Union
+from models.schemas import DocumentResponse, ErrorResponse, NamespaceListResponse
 
 router = APIRouter(
     prefix="/api/v1/documents",
@@ -15,40 +16,58 @@ router = APIRouter(
     },
 )
 
-# Initialize services
-settings = Settings()
-document_service = DocumentService(settings)
+class URLUploadRequest(BaseModel):
+    url: str
+    namespace: str
+
+def get_rag_service():
+    """Dependency to get RAG service instance"""
+    settings = Settings()
+    return RAGService(settings)
 
 @router.post(
     "/upload",
     response_model=DocumentResponse,
-    status_code=status.HTTP_201_CREATED,
-    responses={
-        201: {"description": "Document successfully processed and uploaded"},
-        400: {"description": "Invalid request"},
-        500: {"description": "Internal server error"}
-    }
+    status_code=status.HTTP_200_OK
 )
-async def upload_document(request: UploadDocumentRequest) -> Union[DocumentResponse, ErrorResponse]:
-    """
-    Upload and process a PDF document.
-    
-    The document should be placed in the configured path before calling this endpoint.
-    
-    Request body must include:
-    - namespace: Namespace to upload the document to
-    """
+async def upload_document(
+    file: UploadFile = File(None),
+    namespace: str = None,
+    rag_service: RAGService = Depends(get_rag_service)
+) -> Union[DocumentResponse, ErrorResponse]:
+    """Upload a document to process and store in vector database"""
     try:
-        print(f"document_router: Uploading document to namespace: {request.namespace}")
-        document_service.process_and_upload_document(request.namespace)
+        if file is None:
+            # If no file is provided, use the default document from settings
+            settings = Settings()
+            default_file = settings.PDF_PATH
+            if not os.path.exists(default_file):
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Default file not found at {default_file}"
+                )
+            file_path = default_file
+            print(f"Using default file: {file_path}")
+        else:
+            # Create temp directory if it doesn't exist
+            os.makedirs("temp", exist_ok=True)
+            
+            # Save uploaded file
+            file_path = f"temp/{file.filename}"
+            with open(file_path, "wb") as buffer:
+                content = await file.read()
+                buffer.write(content)
+            print(f"Using uploaded file: {file_path}")
+        
+        # Process document
+        rag_service.process_document(file_path, namespace or "think-and-grow-rich")
+        
+        # Clean up if it was an uploaded file
+        if file is not None and os.path.exists(file_path):
+            os.remove(file_path)
+        
         return DocumentResponse(
-            message=f"Document processed and uploaded successfully to namespace: {request.namespace}",
-            document_id=request.namespace
-        )
-    except FileNotFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="PDF file not found in the configured path"
+            message=f"Document processed and uploaded to namespace '{namespace or 'think-and-grow-rich'}' successfully"
         )
     except Exception as e:
         raise HTTPException(
@@ -59,25 +78,17 @@ async def upload_document(request: UploadDocumentRequest) -> Union[DocumentRespo
 @router.post(
     "/upload-url",
     response_model=DocumentResponse,
-    status_code=status.HTTP_201_CREATED,
-    responses={
-        201: {"description": "Document successfully processed and uploaded"},
-        400: {"description": "Invalid request"},
-        500: {"description": "Internal server error"}
-    }
+    status_code=status.HTTP_200_OK
 )
-async def upload_url_document(request: URLDocumentRequest) -> Union[DocumentResponse, ErrorResponse]:
-    """
-    Upload and process a PDF document from a URL.
-    
-    The document will be processed and stored in a namespace based on the provided title.
-    """
+async def upload_url(
+    request: URLUploadRequest,
+    rag_service: RAGService = Depends(get_rag_service)
+) -> Union[DocumentResponse, ErrorResponse]:
+    """Upload a document from URL to process and store in vector database"""
     try:
-        print("document_router: Uploading document from URL...")
-        document_service.process_and_upload_url_document(request.url, request.title)
+        rag_service.process_url_document(request.url, request.namespace)
         return DocumentResponse(
-            message=f"Document processed and uploaded successfully to namespace: {request.title}",
-            document_id=request.title
+            message=f"Document from URL processed and uploaded to namespace '{request.namespace}' successfully"
         )
     except Exception as e:
         raise HTTPException(
@@ -86,87 +97,43 @@ async def upload_url_document(request: URLDocumentRequest) -> Union[DocumentResp
         )
 
 @router.delete(
-    "",
+    "/{namespace}",
     response_model=DocumentResponse,
-    status_code=status.HTTP_200_OK,
-    responses={
-        200: {"description": "Documents successfully deleted"},
-        404: {"description": "No documents found to delete"},
-        500: {"description": "Internal server error"}
-    }
+    status_code=status.HTTP_200_OK
 )
-async def delete_document(namespace: str) -> Union[DocumentResponse, ErrorResponse]:
-    """
-    Delete all documents from the specified namespace in the vector store.
-    
-    Args:
-        namespace: The namespace to delete documents from
-    """
+async def delete_document(
+    namespace: str,
+    rag_service: RAGService = Depends(get_rag_service)
+) -> Union[DocumentResponse, ErrorResponse]:
+    """Delete all documents from a namespace"""
     try:
-        print(f"document_router: Deleting documents from namespace: {namespace}")
-        document_service.delete_document(namespace)
+        rag_service.delete_document(namespace)
         return DocumentResponse(
             message=f"Documents in namespace '{namespace}' deleted successfully"
         )
     except Exception as e:
-        error_str = str(e)
-        try:
-            # Try to parse the error message if it contains JSON
-            if "HTTP response body:" in error_str:
-                json_str = error_str.split("HTTP response body:")[1].strip()
-                error_data = json.loads(json_str)
-                message = error_data.get("message", "Unknown error")
-                details = error_data.get("details", [])
-                error_detail = f"{message}. Details: {', '.join(details) if details else 'No additional details'}"
-            else:
-                error_detail = error_str
-        except:
-            error_detail = error_str
-
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=error_detail
+            detail=str(e)
         )
 
 @router.get(
     "/namespaces",
     response_model=NamespaceListResponse,
-    status_code=status.HTTP_200_OK,
-    responses={
-        200: {"description": "Successfully retrieved list of namespaces"},
-        500: {"description": "Internal server error"}
-    }
+    status_code=status.HTTP_200_OK
 )
-async def list_namespaces() -> Union[NamespaceListResponse, ErrorResponse]:
-    """
-    List all namespaces in the vector store index.
-    
-    Returns:
-        List of namespaces and total count
-    """
+async def list_namespaces(
+    rag_service: RAGService = Depends(get_rag_service)
+) -> Union[NamespaceListResponse, ErrorResponse]:
+    """List all namespaces in the vector store"""
     try:
-        print("document_router: Listing all namespaces")
-        namespaces = document_service.list_namespaces()
+        namespaces = rag_service.list_namespaces()
         return NamespaceListResponse(
             namespaces=namespaces,
             total=len(namespaces)
         )
     except Exception as e:
-        error_str = str(e)
-        try:
-            # Try to parse the error message if it contains JSON
-            if "HTTP response body:" in error_str:
-                json_str = error_str.split("HTTP response body:")[1].strip()
-                error_data = json.loads(json_str)
-                message = error_data.get("message", "Unknown error")
-                details = error_data.get("details", [])
-                error_detail = f"{message}. Details: {', '.join(details) if details else 'No additional details'}"
-            else:
-                error_detail = error_str
-        except:
-            error_detail = error_str
-
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=error_detail
+            detail=str(e)
         ) 
